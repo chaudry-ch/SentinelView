@@ -1,0 +1,12 @@
+SENTINELVIEW — CONFIGURATION GUIDE
+===================================
+
+Before running, open soar/soar.py and fill in:
+
+EMAIL_SENDER   = "your_gmail@gmail.com"
+EMAIL_PASSWORD = "your_gmail_app_password"
+               (Get this from myaccount.google.com → Security → App passwords)
+EMAIL_RECEIVER = "your_gmail@gmail.com"
+
+That is all you need to configure.
+Everything else works out of the box.
