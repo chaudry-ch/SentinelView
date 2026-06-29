@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SentinelView — SIEM+SOAR</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#060a12;color:#c0d0e8;display:flex;height:100vh;overflow:hidden}
+.sb{width:220px;background:#0a0f1e;border-right:1px solid #162030;display:flex;flex-direction:column;flex-shrink:0}
+.sb-logo{padding:16px;border-bottom:1px solid #162030;display:flex;align-items:center;gap:10px}
+.sb-icon{width:36px;height:36px;background:#1a3a6e;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.sb-name{font-size:14px;font-weight:700;color:#e0eeff}
+.sb-sub{font-size:10px;color:#304060}
+.sb-section{padding:14px 14px 4px;font-size:9px;color:#28404f;text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+.sb-item{display:flex;align-items:center;gap:9px;padding:9px 12px;margin:1px 8px;border-radius:8px;cursor:pointer;font-size:12px;color:#5a7898;transition:all .15s;user-select:none}
+.sb-item:hover{background:#111d30;color:#a0c0e0}
+.sb-item.active{background:#0f2a50;color:#60a8ff;font-weight:600}
+.sb-item .icon{font-size:15px;width:18px;text-align:center}
+.sb-badge{margin-left:auto;background:#b02020;color:#fff;font-size:9px;padding:1px 6px;border-radius:9px;font-weight:700;min-width:18px;text-align:center}
+.sb-badge.warn{background:#b05010}
+.sb-badge.blue{background:#1a5090}
+.sb-bottom{margin-top:auto;padding:12px;border-top:1px solid #162030}
+.sb-status{display:flex;align-items:center;gap:6px;font-size:11px;color:#304060}
+.pulse{width:7px;height:7px;border-radius:50%;background:#22aa55;animation:blink 2s infinite;flex-shrink:0}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid #162030;background:#0a0f1e;flex-shrink:0}
+.topbar-title{font-size:15px;font-weight:700;color:#d8eaff;flex:1}
+.t-badge{padding:4px 13px;border-radius:6px;font-size:11px;font-weight:700;display:flex;align-items:center;gap:6px}
+.t-badge.critical{background:rgba(180,20,20,.2);color:#ff4444;border:1px solid #902020}
+.t-badge.high{background:rgba(180,100,10,.2);color:#ffaa22;border:1px solid #905010}
+.t-badge.normal{background:rgba(20,160,70,.2);color:#22cc66;border:1px solid #106030}
+.t-live{font-size:11px;color:#22aa55;display:flex;align-items:center;gap:5px}
+.t-clock{font-size:11px;color:#304060;font-family:monospace;min-width:70px;text-align:right}
+.pages{flex:1;overflow:hidden;position:relative}
+.page{display:none;height:100%;overflow-y:auto;padding:16px;flex-direction:column;gap:14px}
+.page.active{display:flex}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.metric{background:#0a0f1e;border:1px solid #162030;border-radius:10px;padding:15px}
+.m-label{font-size:11px;color:#304060;margin-bottom:6px}
+.m-val{font-size:28px;font-weight:700;line-height:1}
+.m-sub{font-size:10px;margin-top:5px;color:#304060}
+.metric.danger{border-color:#802020}.metric.danger .m-val{color:#ff4444}
+.metric.warn{border-color:#805010}.metric.warn .m-val{color:#ffaa22}
+.metric.good{border-color:#106030}.metric.good .m-val{color:#22cc66}
+.metric.info{border-color:#103060}.metric.info .m-val{color:#44aaff}
+.panel{background:#0a0f1e;border:1px solid #162030;border-radius:10px;overflow:hidden}
+.panel-head{display:flex;align-items:center;gap:8px;padding:11px 15px;border-bottom:1px solid #162030;background:#0c1422}
+.panel-title{font-size:13px;font-weight:600;color:#b0ccee;flex:1}
+.panel-hint{font-size:10px;color:#304060}
+.panel-body{padding:14px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.chart-wrap{position:relative;width:100%}
+.alert-row{display:flex;align-items:flex-start;gap:10px;padding:9px 11px;border-radius:8px;margin-bottom:6px;border:1px solid #162030;cursor:pointer;transition:all .15s}
+.alert-row:hover{background:#111d30;border-color:#2a4060}
+.alert-row.CRITICAL{border-color:#802020;background:rgba(128,20,20,.1)}
+.alert-row.HIGH{border-color:#804010;background:rgba(128,64,10,.1)}
+.alert-row.MEDIUM{border-color:#806010;background:rgba(128,96,10,.06)}
+.sev-pip{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.sev-pip.CRITICAL{background:#ff3333;box-shadow:0 0 7px #ff333377}
+.sev-pip.HIGH{background:#ff9922}
+.sev-pip.MEDIUM{background:#ffcc22}
+.sev-pip.LOW,.sev-pip.INFO{background:#22cc66}
+.ar-title{font-size:12px;font-weight:600;color:#c0d8f0}
+.ar-meta{font-size:10px;color:#304060;margin-top:2px}
+.ar-desc{font-size:11px;color:#5a7898;margin-top:3px;line-height:1.4}
+.ar-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.tag-blocked{font-size:10px;background:rgba(128,20,20,.25);color:#ff6666;border:1px solid #802020;border-radius:4px;padding:2px 7px}
+.tag-reviewed{font-size:10px;color:#304060}
+.btn-respond{font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid #162030;cursor:pointer;color:#5a7898;background:#060a12;transition:all .15s}
+.btn-respond:hover{background:#0f2a50;color:#60a8ff;border-color:#2a5a9e}
+.log-stream{height:100%;min-height:240px;overflow-y:auto;background:#04070f;border-radius:8px;padding:8px;font-family:'Courier New',monospace;font-size:10px;line-height:1.8}
+.log-line{border-bottom:1px solid rgba(255,255,255,.02);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-line.CRITICAL,.log-line.HIGH{color:#e03030}
+.log-line.MEDIUM{color:#d07020}
+.log-line.INFO{color:#304878}
+.l-ts{color:#1e3048;margin-right:5px}
+.l-src{color:#5030a0;margin-right:5px}
+.l-id{color:#2060a0;margin-right:5px}
+.soar-row{display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:8px;border:1px solid #162030;margin-bottom:6px;font-size:11px}
+.soar-type-tag{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;flex-shrink:0}
+.soar-type-tag.BLOCK_IP,.soar-type-tag.MANUAL_BLOCK{background:rgba(180,20,20,.2);color:#ff4444;border:1px solid #802020}
+.soar-type-tag.FLAG,.soar-type-tag.CRITICAL_FLAG{background:rgba(180,90,10,.2);color:#ffaa22;border:1px solid #804010}
+.soar-type-tag.PROCESS_SCAN{background:rgba(100,20,180,.2);color:#aa66ff;border:1px solid #602090}
+.soar-type-tag.SKIP,.soar-type-tag.LOG_ONLY{background:rgba(30,50,80,.3);color:#5a7898;border:1px solid #162030}
+.ip-table{width:100%;border-collapse:collapse;font-size:12px}
+.ip-table th{text-align:left;padding:8px 12px;font-size:10px;color:#304060;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #162030;font-weight:600}
+.ip-table td{padding:9px 12px;border-bottom:1px solid #0e1828;color:#b0ccee}
+.ip-table tr:hover td{background:#0c1422}
+.ip-unblock{font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #802020;color:#ff4444;background:transparent;cursor:pointer}
+.setting-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #0e1828}
+.setting-label{flex:1}
+.setting-name{font-size:13px;color:#b0ccee;font-weight:500}
+.setting-desc{font-size:11px;color:#304060;margin-top:2px}
+.toggle{width:36px;height:20px;border-radius:10px;border:none;cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}
+.toggle.on{background:#106030}.toggle.off{background:#162030}
+.toggle::after{content:'';position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:2px;transition:left .2s}
+.toggle.on::after{left:18px}.toggle.off::after{left:2px}
+.input-field{background:#060a12;border:1px solid #162030;border-radius:6px;padding:6px 10px;color:#c0d0e8;font-size:12px;width:120px}
+.input-field:focus{outline:none;border-color:#2a5a9e}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:999}
+.modal-overlay.open{display:flex}
+.modal-box{background:#0c1422;border:1px solid #1e3050;border-radius:14px;width:520px;max-width:96vw;padding:22px;max-height:90vh;overflow-y:auto}
+.modal-hdr{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.modal-hdr-title{font-size:15px;font-weight:700;color:#d8eaff;flex:1}
+.modal-close{background:none;border:none;color:#304060;font-size:22px;cursor:pointer}
+.mf{margin-bottom:12px}
+.mf-label{font-size:10px;color:#304060;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.mf-val{font-size:13px;color:#b0ccee}
+.mf-val.code{font-family:monospace;background:#060a12;padding:5px 9px;border-radius:5px;font-size:11px;word-break:break-all;display:block}
+.modal-btns{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+.btn{padding:8px 16px;border-radius:7px;font-size:12px;cursor:pointer;border:1px solid #162030;background:#060a12;color:#b0ccee;transition:all .15s;font-weight:500}
+.btn:hover{background:#111d30}
+.btn.danger{background:#802020;color:#fff;border-color:#a02020}
+.btn.danger:hover{background:#a02020}
+.btn.primary{background:#0f2a50;color:#60a8ff;border-color:#1a4080}
+.btn.primary:hover{background:#1a3a60}
+.btn.success{background:#0a3020;color:#22cc66;border-color:#106030}
+.empty{padding:30px;text-align:center;color:#304060;font-size:12px}
+.page-header{font-size:18px;font-weight:700;color:#d0e4ff;margin-bottom:4px}
+.page-sub{font-size:12px;color:#304060;margin-bottom:14px}
+.search-bar{background:#060a12;border:1px solid #162030;border-radius:8px;padding:8px 14px;color:#c0d0e8;font-size:12px;width:300px;outline:none}
+.search-bar:focus{border-color:#2a5a9e}
+.stat-mini{background:#0a0f1e;border:1px solid #162030;border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+.stat-mini-val{font-size:20px;font-weight:700;color:#60a8ff}
+.stat-mini-label{font-size:10px;color:#304060}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:#060a12}
+::-webkit-scrollbar-thumb{background:#162030;border-radius:2px}
+.notif-toast{position:fixed;top:16px;right:16px;background:#0c1422;border:1px solid #c0392b;border-radius:10px;padding:14px 18px;z-index:9999;max-width:320px;animation:slideIn .3s ease;display:none}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.notif-title{font-size:13px;font-weight:700;color:#ff4444;margin-bottom:4px}
+.notif-body{font-size:11px;color:#b0ccee;line-height:1.5}
+.notif-close{position:absolute;top:8px;right:10px;background:none;border:none;color:#304060;cursor:pointer;font-size:16px}
+</style>
+</head>
+<body>
+
+<div class="sb">
+  <div class="sb-logo">
+    <div class="sb-icon">🛡</div>
+    <div><div class="sb-name">SentinelView</div><div class="sb-sub">SIEM · SOAR · Windows 11</div></div>
+  </div>
+  <div class="sb-section">Monitor</div>
+  <div class="sb-item active" onclick="nav('overview',this)"><span class="icon">📊</span> Overview</div>
+  <div class="sb-item" onclick="nav('alerts',this)"><span class="icon">🔔</span> Alerts <span class="sb-badge" id="sb-alert-count">0</span></div>
+  <div class="sb-item" onclick="nav('analytics',this)"><span class="icon">📈</span> Analytics</div>
+  <div class="sb-item" onclick="nav('logstream',this)"><span class="icon">📄</span> Log stream <span class="sb-badge warn">live</span></div>
+  <div class="sb-section">Respond</div>
+  <div class="sb-item" onclick="nav('soar',this)"><span class="icon">🤖</span> SOAR actions <span class="sb-badge warn" id="sb-soar-count">0</span></div>
+  <div class="sb-item" onclick="nav('blocked',this)"><span class="icon">🚫</span> Blocked IPs <span class="sb-badge" id="sb-blocked-count">0</span></div>
+  <div class="sb-item" onclick="nav('incidents',this)"><span class="icon">📋</span> Incidents</div>
+  <div class="sb-section">System</div>
+  <div class="sb-item" onclick="nav('settings',this)"><span class="icon">⚙</span> Settings</div>
+  <div class="sb-bottom">
+    <div class="sb-status"><span class="pulse"></span> All engines active</div>
+    <div class="sb-status" style="margin-top:5px;padding-left:13px;font-size:10px" id="sb-host">Haseeb-pc</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title" id="page-title">Security Operations — Overview</span>
+    <div class="t-live"><span class="pulse"></span> Live</div>
+    <div class="t-badge normal" id="threat-badge">✔ NORMAL</div>
+    <div class="t-clock" id="clock">--:--:--</div>
+  </div>
+
+  <div class="pages">
+
+    <!-- OVERVIEW -->
+    <div class="page active" id="page-overview">
+      <div class="metrics">
+        <div class="metric danger"><div class="m-label">🔔 Active alerts</div><div class="m-val" id="ov-open">—</div><div class="m-sub">Unresponded</div></div>
+        <div class="metric warn"><div class="m-label">⚡ Events / min</div><div class="m-val" id="ov-eps">—</div><div class="m-sub">Live ingestion rate</div></div>
+        <div class="metric good"><div class="m-label">🤖 SOAR actions</div><div class="m-val" id="ov-soar">—</div><div class="m-sub">Auto-responses fired</div></div>
+        <div class="metric info"><div class="m-label">📄 Total events</div><div class="m-val" id="ov-events">—</div><div class="m-sub">Since start</div></div>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span>🔔</span><span class="panel-title">Recent alerts</span><span class="panel-hint" style="cursor:pointer;color:#3060a0" onclick="nav('alerts',null)">View all →</span></div>
+          <div class="panel-body" id="ov-alerts-list"><div class="empty">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span style="color:#4fc3f7">⬛</span><span class="panel-title">Live log stream</span><span class="panel-hint" style="color:#22aa55">● Real-time</span></div>
+          <div class="panel-body" style="padding:8px"><div class="log-stream" id="ov-log-stream" style="height:280px"></div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div class="stat-mini"><span style="font-size:20px">🔴</span><div><div class="stat-mini-val" id="ov-critical">—</div><div class="stat-mini-label">Critical alerts</div></div></div>
+        <div class="stat-mini"><span style="font-size:20px">🟠</span><div><div class="stat-mini-val" id="ov-high">—</div><div class="stat-mini-label">High alerts</div></div></div>
+        <div class="stat-mini"><span style="font-size:20px">🚫</span><div><div class="stat-mini-val" id="ov-blocks">—</div><div class="stat-mini-label">IPs blocked</div></div></div>
+      </div>
+    </div>
+
+    <!-- ALERTS -->
+    <div class="page" id="page-alerts">
+      <div class="page-header">🔔 All alerts</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <input class="search-bar" id="alert-search" placeholder="🔍  Search by rule, host, EventID..." oninput="searchAlerts(this.value)">
+        <button class="btn" onclick="filterAlerts('ALL')">All</button>
+        <button class="btn" onclick="filterAlerts('CRITICAL')" style="color:#ff4444;border-color:#802020">Critical</button>
+        <button class="btn" onclick="filterAlerts('HIGH')" style="color:#ffaa22;border-color:#804010">High</button>
+        <button class="btn" onclick="filterAlerts('MEDIUM')" style="color:#ffcc22;border-color:#806010">Medium</button>
+        <button class="btn" onclick="filterAlerts('OPEN')" style="color:#44aaff;border-color:#103060">Open only</button>
+        <button class="btn success" onclick="exportCSV()">⬇ Export CSV</button>
+        <button class="btn primary" onclick="exportPDF()">🖨 Print report</button>
+      </div>
+      <div class="panel" style="flex:1">
+        <div class="panel-head"><span>🔔</span><span class="panel-title">Alerts</span><span class="panel-hint" id="alert-filter-label">Showing: All</span></div>
+        <div class="panel-body" id="full-alerts-list" style="max-height:calc(100vh - 280px);overflow-y:auto"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+
+    <!-- ANALYTICS -->
+    <div class="page" id="page-analytics">
+      <div class="page-header">📈 Analytics — threat trends</div>
+      <div class="page-sub">Visual breakdown of all events and alerts over the last 24 hours</div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div class="stat-mini"><span style="font-size:20px">⚡</span><div><div class="stat-mini-val" id="an-last-hour-events">—</div><div class="stat-mini-label">Events last hour</div></div></div>
+        <div class="stat-mini"><span style="font-size:20px">🔔</span><div><div class="stat-mini-val" id="an-last-hour-alerts">—</div><div class="stat-mini-label">Alerts last hour</div></div></div>
+        <div class="stat-mini"><span style="font-size:20px">🔴</span><div><div class="stat-mini-val" id="an-critical">—</div><div class="stat-mini-label">Total critical</div></div></div>
+        <div class="stat-mini"><span style="font-size:20px">🤖</span><div><div class="stat-mini-val" id="an-soar-total">—</div><div class="stat-mini-label">SOAR actions</div></div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span>📊</span><span class="panel-title">Events by severity — last 24 hours</span><span class="panel-hint">Stacked bar chart</span></div>
+        <div class="panel-body"><div class="chart-wrap" style="height:220px"><canvas id="chart-events-bar"></canvas></div></div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span>📉</span><span class="panel-title">Alert trend — last 24 hours</span></div>
+          <div class="panel-body"><div class="chart-wrap" style="height:180px"><canvas id="chart-alert-trend"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>🍩</span><span class="panel-title">Alert severity distribution</span></div>
+          <div class="panel-body"><div class="chart-wrap" style="height:180px"><canvas id="chart-sev-pie"></canvas></div></div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span>🏆</span><span class="panel-title">Top alert types</span></div>
+          <div class="panel-body"><div class="chart-wrap" style="height:200px"><canvas id="chart-alert-types"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>🤖</span><span class="panel-title">SOAR actions breakdown</span></div>
+          <div class="panel-body"><div class="chart-wrap" style="height:200px"><canvas id="chart-soar"></canvas></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOG STREAM -->
+    <div class="page" id="page-logstream">
+      <div class="page-header">📄 Live log stream</div>
+      <div class="page-sub">All Windows Event Log entries collected in real time</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <button class="btn" onclick="filterLogs('ALL')">All</button>
+        <button class="btn" onclick="filterLogs('HIGH')" style="color:#ff4444">Errors</button>
+        <button class="btn" onclick="filterLogs('MEDIUM')" style="color:#ffaa22">Warnings</button>
+        <button class="btn primary" id="log-pause-btn" onclick="toggleLogPause()">⏸ Pause</button>
+        <button class="btn" onclick="clearLogs()">🗑 Clear</button>
+      </div>
+      <div class="panel" style="flex:1">
+        <div class="panel-head"><span style="color:#4fc3f7">⬛</span><span class="panel-title">Windows Event Log — live feed</span><span class="panel-hint" style="color:#22aa55" id="log-count-label">0 entries</span></div>
+        <div class="panel-body" style="padding:6px"><div class="log-stream" id="full-log-stream" style="height:calc(100vh - 290px)"></div></div>
+      </div>
+    </div>
+
+    <!-- SOAR -->
+    <div class="page" id="page-soar">
+      <div class="page-header">🤖 SOAR — automated response</div>
+      <div class="page-sub">Every automated action taken by the response engine</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <div class="metric good"><div class="m-label">✅ Total actions</div><div class="m-val" id="soar-total">—</div><div class="m-sub">All responses fired</div></div>
+        <div class="metric danger"><div class="m-label">🚫 IPs blocked</div><div class="m-val" id="soar-blocks">—</div><div class="m-sub">Via Windows Firewall</div></div>
+        <div class="metric warn"><div class="m-label">🏴 Flags raised</div><div class="m-val" id="soar-flags">—</div><div class="m-sub">Escalated for review</div></div>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span>🤖</span><span class="panel-title">Action log</span></div>
+          <div class="panel-body" id="soar-action-list" style="max-height:400px;overflow-y:auto"><div class="empty">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>⚙</span><span class="panel-title">Active playbook rules</span></div>
+          <div class="panel-body" id="soar-rules-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BLOCKED IPs -->
+    <div class="page" id="page-blocked">
+      <div class="page-header">🚫 Blocked IPs</div>
+      <div class="page-sub">All IPs currently blocked in Windows Firewall</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input class="input-field" id="manual-ip-input" placeholder="Enter IP to block..." style="width:220px">
+        <button class="btn danger" onclick="manualBlockIP()">🚫 Block IP</button>
+        <button class="btn" onclick="loadBlockedIPs()">🔄 Refresh</button>
+      </div>
+      <div class="panel" style="flex:1">
+        <div class="panel-head"><span>🚫</span><span class="panel-title">Firewall block rules</span><span class="panel-hint" id="blocked-count-label">0 rules</span></div>
+        <div class="panel-body"><div id="blocked-table-wrap"><div class="empty">Loading...</div></div></div>
+      </div>
+    </div>
+
+    <!-- INCIDENTS -->
+    <div class="page" id="page-incidents">
+      <div class="page-header">📋 Incident timeline</div>
+      <div class="page-sub">Chronological view of all security events</div>
+      <div class="panel" style="flex:1">
+        <div class="panel-head"><span>📋</span><span class="panel-title">All incidents</span></div>
+        <div class="panel-body" id="incident-list" style="max-height:calc(100vh - 260px);overflow-y:auto"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="page" id="page-settings">
+      <div class="page-header">⚙ Settings</div>
+      <div class="page-sub">Configure detection and SOAR behaviour</div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span>🔍</span><span class="panel-title">Detection settings</span></div>
+          <div class="panel-body">
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Brute force threshold</div><div class="setting-desc">Failed logins before CRITICAL fires</div></div><input class="input-field" value="5" style="width:70px"></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Alert dedup window</div><div class="setting-desc">Minutes before same rule fires again</div></div><input class="input-field" value="60" style="width:70px"></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">After-hours start</div><div class="setting-desc">Hour considered after-hours (24h)</div></div><input class="input-field" value="22" style="width:70px"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>🤖</span><span class="panel-title">SOAR automation</span></div>
+          <div class="panel-body">
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Auto-block brute force</div><div class="setting-desc">Block IP on CRITICAL brute force</div></div><button class="toggle on" onclick="this.classList.toggle('on');this.classList.toggle('off')"></button></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Auto-flag privilege abuse</div><div class="setting-desc">Flag SeDebug events for review</div></div><button class="toggle on" onclick="this.classList.toggle('on');this.classList.toggle('off')"></button></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser notifications</div><div class="setting-desc">Popup on CRITICAL alert</div></div><button class="toggle on" id="notif-toggle" onclick="toggleNotifications(this)"></button></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>ℹ</span><span class="panel-title">System info</span></div>
+          <div class="panel-body">
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Host</div></div><div style="font-size:12px;color:#60a8ff;font-family:monospace">Haseeb-pc</div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Database</div></div><div style="font-size:10px;color:#304060;font-family:monospace">C:\SentinelView\database\sentinel.db</div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Collector</div></div><div style="font-size:12px;color:#22cc66">● Running</div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">SOAR engine</div></div><div style="font-size:12px;color:#22cc66">● Running</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal-box">
+    <div class="modal-hdr"><span style="font-size:22px">⚠</span><span class="modal-hdr-title" id="modal-title">Alert detail</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="modal-body"></div>
+    <div class="modal-btns" id="modal-btns"></div>
+  </div>
+</div>
+
+<!-- NOTIFICATION TOAST -->
+<div class="notif-toast" id="notif-toast">
+  <button class="notif-close" onclick="document.getElementById('notif-toast').style.display='none'">✕</button>
+  <div class="notif-title" id="notif-title">⚠ CRITICAL ALERT</div>
+  <div class="notif-body" id="notif-body"></div>
+</div>
+
+<script>
+const socket = io();
+let allAlerts   = [];
+let allLogs     = [];
+let logPaused   = false;
+let currentFilter = 'ALL';
+let notifEnabled  = true;
+let charts = {};
+let lastAlertCount = 0;
+
+const soarRules = [
+  {name:'Block brute-force IP',   desc:'≥5 failed logins → Firewall block', on:true},
+  {name:'Flag privilege abuse',   desc:'SeDebug → process scan + flag',     on:true},
+  {name:'Alert on log cleared',   desc:'EventID 1102 → critical escalation', on:true},
+  {name:'Flag new service',       desc:'EventID 7045 → SOC review',          on:true},
+  {name:'Flag scheduled task',    desc:'EventID 4698 → review',              on:true},
+  {name:'Scan on PS detection',   desc:'Suspicious PS → process scan',       on:true},
+];
+
+// ── Navigation ─────────────────────────────────────────────────────
+function nav(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const titles = {
+    overview:'Security Operations — Overview',
+    alerts:'🔔 All alerts',
+    analytics:'📈 Analytics — threat trends',
+    logstream:'📄 Live log stream',
+    soar:'🤖 SOAR — Automated Response',
+    blocked:'🚫 Blocked IPs',
+    incidents:'📋 Incident timeline',
+    settings:'⚙ Settings'
+  };
+  document.getElementById('page-title').textContent = titles[page]||page;
+  if (page==='analytics') loadCharts();
+  if (page==='soar')      { loadSoarActions(); renderSoarRules(); }
+  if (page==='blocked')   loadBlockedIPs();
+  if (page==='incidents') loadIncidents();
+}
+
+// ── Clock ──────────────────────────────────────────────────────────
+setInterval(()=>{ document.getElementById('clock').textContent=new Date().toLocaleTimeString(); },1000);
+
+// ── Chart colours ──────────────────────────────────────────────────
+const C = {
+  critical:'#c0392b', high:'#e67e22',
+  medium:'#f39c12',   info:'#2980b9',
+  purple:'#8e44ad',   teal:'#16a085',
+  grid:'rgba(255,255,255,0.05)', text:'#5a7898'
+};
+
+Chart.defaults.color = C.text;
+Chart.defaults.borderColor = C.grid;
+Chart.defaults.font.family = "'Segoe UI', sans-serif";
+Chart.defaults.font.size   = 11;
+
+// ── Load charts ────────────────────────────────────────────────────
+async function loadCharts() {
+  try {
+    const d = await (await fetch('/api/chart-data')).json();
+
+    document.getElementById('an-last-hour-events').textContent = d.last_hour_events;
+    document.getElementById('an-last-hour-alerts').textContent = d.last_hour_alerts;
+    document.getElementById('an-critical').textContent = d.severity_dist['CRITICAL']||0;
+    document.getElementById('an-soar-total').textContent =
+      Object.values(d.soar_dist||{}).reduce((a,b)=>a+b,0);
+
+    buildBarChart(d);
+    buildTrendChart(d);
+    buildPieChart(d);
+    buildAlertTypesChart(d);
+    buildSoarChart(d);
+  } catch(e){ console.error('Chart load error',e); }
+}
+
+function buildBarChart(d) {
+  const ctx = document.getElementById('chart-events-bar');
+  if (charts.bar) charts.bar.destroy();
+  charts.bar = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: d.hours,
+      datasets: [
+        { label:'Critical', data:d.events_critical, backgroundColor:C.critical, stack:'s' },
+        { label:'High',     data:d.events_high,     backgroundColor:C.high,     stack:'s' },
+        { label:'Medium',   data:d.events_medium,   backgroundColor:C.medium,   stack:'s' },
+        { label:'Info',     data:d.events_info,     backgroundColor:C.info,     stack:'s' },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'top', labels:{ boxWidth:10, padding:14 } } },
+      scales:{
+        x:{ grid:{ color:C.grid }, ticks:{ maxTicksLimit:12, color:C.text } },
+        y:{ grid:{ color:C.grid }, ticks:{ color:C.text } }
+      }
+    }
+  });
+}
+
+function buildTrendChart(d) {
+  const ctx = document.getElementById('chart-alert-trend');
+  if (charts.trend) charts.trend.destroy();
+  charts.trend = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels:d.hours,
+      datasets:[{
+        label:'Alerts',
+        data:d.alert_trend,
+        borderColor:C.critical,
+        backgroundColor:'rgba(192,57,43,0.1)',
+        tension:0.4, fill:true, pointRadius:3,
+        pointBackgroundColor:C.critical
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ color:C.grid }, ticks:{ maxTicksLimit:12, color:C.text } },
+        y:{ grid:{ color:C.grid }, ticks:{ color:C.text }, beginAtZero:true }
+      }
+    }
+  });
+}
+
+function buildPieChart(d) {
+  const ctx = document.getElementById('chart-sev-pie');
+  if (charts.pie) charts.pie.destroy();
+  const sd = d.severity_dist||{};
+  const labels = Object.keys(sd);
+  const vals   = Object.values(sd);
+  const colors = labels.map(l=>({CRITICAL:C.critical,HIGH:C.high,MEDIUM:C.medium,LOW:C.teal,INFO:C.info}[l]||C.info));
+  charts.pie = new Chart(ctx,{
+    type:'doughnut',
+    data:{ labels, datasets:[{ data:vals, backgroundColor:colors, borderWidth:1, borderColor:'#0a0f1e' }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'right', labels:{ boxWidth:10 } } },
+      cutout:'65%'
+    }
+  });
+}
+
+function buildAlertTypesChart(d) {
+  const ctx = document.getElementById('chart-alert-types');
+  if (charts.types) charts.types.destroy();
+  const at = d.alert_types||[];
+  charts.types = new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:at.map(a=>a.name.length>22?a.name.slice(0,22)+'…':a.name),
+      datasets:[{ label:'Count', data:at.map(a=>a.count), backgroundColor:C.purple, borderRadius:4 }]
+    },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ color:C.grid }, ticks:{ color:C.text } },
+        y:{ grid:{ display:false }, ticks:{ color:C.text } }
+      }
+    }
+  });
+}
+
+function buildSoarChart(d) {
+  const ctx = document.getElementById('chart-soar');
+  if (charts.soar) charts.soar.destroy();
+  const sd = d.soar_dist||{};
+  if (!Object.keys(sd).length) return;
+  const colorMap = {
+    BLOCK_IP:C.critical, MANUAL_BLOCK:C.high,
+    FLAG:C.medium, CRITICAL_FLAG:C.high,
+    PROCESS_SCAN:C.purple, SKIP:C.info, LOG_ONLY:C.teal
+  };
+  charts.soar = new Chart(ctx,{
+    type:'doughnut',
+    data:{
+      labels:Object.keys(sd),
+      datasets:[{ data:Object.values(sd), backgroundColor:Object.keys(sd).map(k=>colorMap[k]||C.info), borderWidth:1, borderColor:'#0a0f1e' }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'right', labels:{ boxWidth:10 } } },
+      cutout:'60%'
+    }
+  });
+}
+
+// ── Stats ──────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const d = await (await fetch('/api/stats')).json();
+    document.getElementById('ov-open').textContent    = d.open_alerts;
+    document.getElementById('ov-eps').textContent     = d.events_per_min;
+    document.getElementById('ov-soar').textContent    = d.soar_actions;
+    document.getElementById('ov-critical').textContent= d.critical;
+    document.getElementById('ov-high').textContent    = d.high;
+    document.getElementById('ov-blocks').textContent  = d.total_blocks;
+    document.getElementById('soar-total').textContent = d.soar_actions;
+    document.getElementById('soar-blocks').textContent= d.total_blocks;
+    document.getElementById('soar-flags').textContent = Math.max(0,d.soar_actions-d.total_blocks);
+    document.getElementById('sb-soar-count').textContent   = d.soar_actions;
+    document.getElementById('sb-blocked-count').textContent= d.total_blocks;
+    document.getElementById('sb-alert-count').textContent  = d.open_alerts;
+    const ev = d.total_events;
+    document.getElementById('ov-events').textContent = ev>999?Math.round(ev/1000)+'k':ev;
+    const badge = document.getElementById('threat-badge');
+    if (d.critical>0){ badge.className='t-badge critical'; badge.textContent='🔴 CRITICAL THREAT'; }
+    else if (d.open_alerts>0){ badge.className='t-badge high'; badge.textContent='🟠 HIGH THREAT'; }
+    else { badge.className='t-badge normal'; badge.textContent='✔ NORMAL'; }
+  } catch(e){}
+}
+
+// ── Alerts ─────────────────────────────────────────────────────────
+async function loadAlerts() {
+  try {
+    allAlerts = await (await fetch('/api/alerts')).json();
+    renderOverviewAlerts();
+    renderFullAlerts(allAlerts);
+    checkNewAlerts();
+  } catch(e){}
+}
+
+function checkNewAlerts() {
+  const criticals = allAlerts.filter(a=>a.severity==='CRITICAL'&&!a.responded);
+  if (criticals.length > lastAlertCount && notifEnabled) {
+    showNotification(criticals[0]);
+  }
+  lastAlertCount = criticals.length;
+}
+
+function showNotification(alert) {
+  const toast = document.getElementById('notif-toast');
+  document.getElementById('notif-title').textContent = '⚠ CRITICAL — '+alert.rule_name;
+  document.getElementById('notif-body').textContent  = alert.description.slice(0,120);
+  toast.style.display = 'block';
+  setTimeout(()=>{ toast.style.display='none'; }, 7000);
+  if (Notification.permission==='granted') {
+    new Notification('SentinelView CRITICAL ALERT', {
+      body: alert.rule_name+'\n'+alert.hostname,
+      icon: ''
+    });
+  }
+}
+
+function toggleNotifications(btn) {
+  btn.classList.toggle('on'); btn.classList.toggle('off');
+  notifEnabled = btn.classList.contains('on');
+  if (notifEnabled && Notification.permission==='default') {
+    Notification.requestPermission();
+  }
+}
+
+function alertHTML(a, compact=false) {
+  const right = a.blocked
+    ? `<span class="tag-blocked">🛡 Blocked</span>`
+    : a.responded
+      ? `<span class="tag-reviewed">✔ reviewed</span>`
+      : `<button class="btn-respond" onclick="event.stopPropagation();respondAlert(${a.id},'${a.source_ip}')">Respond</button>`;
+  return `
+    <div class="alert-row ${a.severity}" onclick="openAlert(${a.id})">
+      <div class="sev-pip ${a.severity}"></div>
+      <div style="flex:1;min-width:0">
+        <div class="ar-title">${a.rule_name}</div>
+        <div class="ar-meta">EventID ${a.event_id} · ${a.hostname} · ${a.timestamp.slice(11,19)}</div>
+        ${!compact?`<div class="ar-desc">${(a.description||'').slice(0,90)}...</div>`:''}
+      </div>
+      <div class="ar-right">${right}</div>
+    </div>`;
+}
+
+function renderOverviewAlerts() {
+  const el = document.getElementById('ov-alerts-list');
+  const top = allAlerts.slice(0,6);
+  el.innerHTML = top.length ? top.map(a=>alertHTML(a,true)).join('') : '<div class="empty">No alerts — system clean ✔</div>';
+}
+
+function renderFullAlerts(list) {
+  const el = document.getElementById('full-alerts-list');
+  el.innerHTML = list.length ? list.map(a=>alertHTML(a,false)).join('') : '<div class="empty">No alerts match this filter</div>';
+}
+
+function filterAlerts(type) {
+  currentFilter = type;
+  document.getElementById('alert-filter-label').textContent = 'Showing: '+type;
+  document.getElementById('alert-search').value = '';
+  if (type==='ALL')    renderFullAlerts(allAlerts);
+  else if (type==='OPEN') renderFullAlerts(allAlerts.filter(a=>!a.responded&&!a.blocked));
+  else renderFullAlerts(allAlerts.filter(a=>a.severity===type));
+}
+
+function searchAlerts(q) {
+  q = q.toLowerCase();
+  if (!q) { renderFullAlerts(allAlerts); return; }
+  renderFullAlerts(allAlerts.filter(a=>
+    (a.rule_name||'').toLowerCase().includes(q) ||
+    (a.hostname||'').toLowerCase().includes(q) ||
+    String(a.event_id).includes(q) ||
+    (a.description||'').toLowerCase().includes(q) ||
+    (a.severity||'').toLowerCase().includes(q)
+  ));
+}
+
+function exportCSV() {
+  const rows = [['ID','Timestamp','Rule','Severity','Host','EventID','Description','Responded','Blocked']];
+  allAlerts.forEach(a=>rows.push([a.id,a.timestamp,a.rule_name,a.severity,a.hostname,a.event_id,'"'+(a.description||'').replace(/"/g,"'")+'"',a.responded,a.blocked]));
+  const csv  = rows.map(r=>r.join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = 'SentinelView_Alerts_'+new Date().toISOString().slice(0,10)+'.csv';
+  link.click(); URL.revokeObjectURL(url);
+}
+
+function exportPDF() {
+  const now = new Date().toLocaleString();
+  const critical = allAlerts.filter(a=>a.severity==='CRITICAL').length;
+  const high     = allAlerts.filter(a=>a.severity==='HIGH').length;
+  const open     = allAlerts.filter(a=>!a.responded).length;
+  const rows = allAlerts.map(a=>`
+    <tr style="border-bottom:1px solid #ddd">
+      <td style="padding:6px 8px;color:${a.severity==='CRITICAL'?'#c0392b':a.severity==='HIGH'?'#e67e22':'#f39c12'};font-weight:bold">${a.severity}</td>
+      <td style="padding:6px 8px">${a.rule_name}</td>
+      <td style="padding:6px 8px;font-family:monospace">${a.hostname}</td>
+      <td style="padding:6px 8px">${a.timestamp.slice(0,19)}</td>
+      <td style="padding:6px 8px">${a.blocked?'Blocked':a.responded?'Reviewed':'Open'}</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html><html><head><title>SentinelView Report</title>
+  <style>body{font-family:Segoe UI,sans-serif;padding:30px;color:#222}
+  h1{color:#1a2744}table{width:100%;border-collapse:collapse}
+  th{background:#1a2744;color:#fff;padding:8px;text-align:left}
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:20px 0}
+  .card{border:1px solid #ddd;border-radius:8px;padding:14px;text-align:center}
+  .card-val{font-size:28px;font-weight:bold}.card-label{font-size:12px;color:#666}
+  </style></head><body>
+  <h1>🛡 SentinelView — Security Report</h1>
+  <p style="color:#666">Generated: ${now} | Host: Haseeb-pc</p>
+  <div class="summary">
+    <div class="card"><div class="card-val" style="color:#c0392b">${critical}</div><div class="card-label">Critical alerts</div></div>
+    <div class="card"><div class="card-val" style="color:#e67e22">${high}</div><div class="card-label">High alerts</div></div>
+    <div class="card"><div class="card-val" style="color:#e74c3c">${open}</div><div class="card-label">Open / unresponded</div></div>
+    <div class="card"><div class="card-val" style="color:#27ae60">${allAlerts.length-open}</div><div class="card-label">Resolved</div></div>
+  </div>
+  <h2>All alerts</h2>
+  <table><thead><tr><th>Severity</th><th>Rule</th><th>Host</th><th>Time</th><th>Status</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <p style="margin-top:30px;color:#999;font-size:11px">SentinelView SIEM+SOAR Platform — Confidential</p>
+  </body></html>`;
+  const w = window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(), 500);
+}
+
+// ── Log stream ─────────────────────────────────────────────────────
+async function loadEvents() {
+  try {
+    const evs = await (await fetch('/api/events')).json();
+    allLogs = evs.slice().reverse();
+    allLogs.forEach(e=>{ appendLog(e,'ov-log-stream'); appendLog(e,'full-log-stream'); });
+  } catch(e){}
+}
+
+function appendLog(ev, streamId='ov-log-stream') {
+  if (logPaused&&streamId==='full-log-stream') return;
+  const stream = document.getElementById(streamId);
+  if (!stream) return;
+  const ts  = (ev.timestamp||'').slice(11,19)||'--:--:--';
+  const src = (ev.source||'System').slice(0,22);
+  const msg = (ev.message||'').slice(0,90);
+  const div = document.createElement('div');
+  div.className=`log-line ${ev.severity||'INFO'}`;
+  div.dataset.sev=ev.severity||'INFO';
+  div.innerHTML=`<span class="l-ts">${ts}</span><span class="l-src">[${src}]</span><span class="l-id">ID:${ev.event_id}</span>${msg}`;
+  stream.appendChild(div);
+  if (stream.children.length>150) stream.removeChild(stream.children[0]);
+  stream.scrollTop=stream.scrollHeight;
+  const lc=document.getElementById('log-count-label');
+  if(lc) lc.textContent=(document.getElementById('full-log-stream')?.children.length||0)+' entries';
+}
+
+function filterLogs(type) {
+  Array.from(document.getElementById('full-log-stream').children).forEach(el=>{
+    el.style.display=(type==='ALL'||el.dataset.sev===type)?'':'none';
+  });
+}
+
+function toggleLogPause() {
+  logPaused=!logPaused;
+  document.getElementById('log-pause-btn').textContent=logPaused?'▶ Resume':'⏸ Pause';
+}
+
+function clearLogs() {
+  document.getElementById('full-log-stream').innerHTML='';
+  allLogs=[];
+}
+
+// ── SOAR ───────────────────────────────────────────────────────────
+async function loadSoarActions() {
+  try {
+    const actions=await(await fetch('/api/soar_actions')).json();
+    const el=document.getElementById('soar-action-list');
+    el.innerHTML=actions.length?actions.map(a=>`
+      <div class="soar-row">
+        <span class="soar-type-tag ${a.action_type}">${a.action_type}</span>
+        <span style="color:#b0ccee;flex:1;font-family:monospace">${a.target}</span>
+        <span style="color:#5a7898;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(a.result||'').slice(0,40)}</span>
+        <span style="color:#1e3048;font-family:monospace;font-size:10px">${(a.timestamp||'').slice(11,19)}</span>
+      </div>`).join(''):'<div class="empty">No SOAR actions yet</div>';
+  } catch(e){}
+}
+
+function renderSoarRules() {
+  document.getElementById('soar-rules-list').innerHTML=soarRules.map((r,i)=>`
+    <div class="setting-row">
+      <div class="setting-label"><div class="setting-name">${r.name}</div><div class="setting-desc">${r.desc}</div></div>
+      <button class="toggle ${r.on?'on':'off'}" onclick="soarRules[${i}].on=!soarRules[${i}].on;this.classList.toggle('on');this.classList.toggle('off')"></button>
+    </div>`).join('');
+}
+
+// ── Blocked IPs ────────────────────────────────────────────────────
+async function loadBlockedIPs() {
+  try {
+    const actions=await(await fetch('/api/soar_actions')).json();
+    const blocks=actions.filter(a=>a.action_type==='BLOCK_IP'||a.action_type==='MANUAL_BLOCK');
+    document.getElementById('blocked-count-label').textContent=blocks.length+' rules';
+    const wrap=document.getElementById('blocked-table-wrap');
+    if (!blocks.length){ wrap.innerHTML='<div class="empty">No IPs currently blocked</div>'; return; }
+    wrap.innerHTML=`<table class="ip-table">
+      <thead><tr><th>#</th><th>IP / Target</th><th>Reason</th><th>Time</th><th>Action</th></tr></thead>
+      <tbody>${blocks.map((b,i)=>`<tr>
+        <td>${i+1}</td>
+        <td style="font-family:monospace;color:#60a8ff">${b.target}</td>
+        <td style="color:#5a7898">${(b.result||'').slice(0,40)}</td>
+        <td style="font-family:monospace;color:#304060">${(b.timestamp||'').slice(0,19)}</td>
+        <td><button class="ip-unblock" onclick="unblockIP('${b.target}')">Unblock</button></td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch(e){}
+}
+
+async function manualBlockIP() {
+  const ip=document.getElementById('manual-ip-input').value.trim();
+  if (!ip){ alert('Enter an IP'); return; }
+  if (!confirm(`Block IP: ${ip}?`)) return;
+  const r=await fetch('/api/block',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip,alert_id:0})});
+  const d=await r.json();
+  alert(d.status==='success'?`✔ ${ip} blocked`:'Failed: '+d.message);
+  loadBlockedIPs(); loadStats();
+}
+
+function unblockIP(ip) {
+  alert(`Run in CMD as Admin:\nnetsh advfirewall firewall delete rule name="SENTINEL_BLOCK_${ip}"`);
+}
+
+// ── Incidents ──────────────────────────────────────────────────────
+async function loadIncidents() {
+  try {
+    const alerts=await(await fetch('/api/alerts')).json();
+    const el=document.getElementById('incident-list');
+    if(!alerts.length){ el.innerHTML='<div class="empty">No incidents</div>'; return; }
+    el.innerHTML=alerts.map(a=>`
+      <div style="display:flex;gap:14px;padding:12px 0;border-bottom:1px solid #0e1828;align-items:flex-start">
+        <div style="width:70px;font-size:10px;color:#304060;font-family:monospace;flex-shrink:0">${(a.timestamp||'').slice(11,19)}</div>
+        <div class="sev-pip ${a.severity}" style="margin-top:4px;flex-shrink:0"></div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#c0d8f0">${a.rule_name}</div>
+          <div style="font-size:11px;color:#5a7898;margin-top:3px">${a.description}</div>
+          <div style="font-size:10px;color:#304060;margin-top:4px">${a.hostname} · EventID ${a.event_id} · ${a.severity}</div>
+        </div>
+        <div style="font-size:10px;flex-shrink:0">${a.blocked?'<span class="tag-blocked">🛡 Blocked</span>':a.responded?'<span class="tag-reviewed">✔ Done</span>':'<span style="color:#ff4444">⚠ Open</span>'}</div>
+      </div>`).join('');
+  } catch(e){}
+}
+
+// ── Alert modal ────────────────────────────────────────────────────
+function openAlert(id) {
+  const a=allAlerts.find(x=>x.id===id); if(!a) return;
+  const sc={CRITICAL:'#ff4444',HIGH:'#ffaa22',MEDIUM:'#ffcc22'}[a.severity]||'#5a7898';
+  document.getElementById('modal-title').textContent=a.rule_name;
+  document.getElementById('modal-body').innerHTML=`
+    <div class="mf"><div class="mf-label">Severity</div><div class="mf-val" style="color:${sc};font-weight:700;font-size:15px">${a.severity}</div></div>
+    <div class="mf"><div class="mf-label">Host</div><div class="mf-val code">${a.hostname}</div></div>
+    <div class="mf"><div class="mf-label">Source IP</div><div class="mf-val code">${a.source_ip}</div></div>
+    <div class="mf"><div class="mf-label">Event ID</div><div class="mf-val code">${a.event_id}</div></div>
+    <div class="mf"><div class="mf-label">Time</div><div class="mf-val">${a.timestamp}</div></div>
+    <div class="mf"><div class="mf-label">Description</div><div class="mf-val">${a.description}</div></div>
+    <div class="mf"><div class="mf-label">Status</div><div class="mf-val">${a.blocked?'🛡 Blocked by SOAR':a.responded?'✔ Reviewed':'⚠ OPEN — awaiting response'}</div></div>`;
+  const btns=document.getElementById('modal-btns');
+  btns.innerHTML=!a.responded&&!a.blocked
+    ?`<button class="btn danger" onclick="respondAlert(${a.id},'${a.source_ip}');closeModal()">🚫 Block IP</button>
+      <button class="btn primary" onclick="markReviewed(${a.id})">✔ Mark reviewed</button>
+      <button class="btn" onclick="closeModal()">Close</button>`
+    :`<button class="btn" onclick="closeModal()">Close</button>`;
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function respondAlert(alertId,ip) {
+  const local=['haseeb-pc','localhost','local','—',''];
+  if (!ip||local.includes(ip.toLowerCase())){
+    if(!confirm('Local event — no external IP.\nMark as reviewed instead?')) return;
+    await markReviewed(alertId); return;
+  }
+  if(!confirm(`Block IP: ${ip}?`)) return;
+  const r=await fetch('/api/block',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip,alert_id:alertId})});
+  const d=await r.json();
+  alert(d.status==='success'?`✔ ${ip} blocked`:'Failed: '+d.message);
+  loadAlerts(); loadStats();
+}
+
+async function markReviewed(alertId) {
+  await fetch('/api/block',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:'',alert_id:alertId})});
+  closeModal(); loadAlerts(); loadStats();
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────
+socket.on('live_update', data => {
+  if (data.events) data.events.forEach(e=>{ appendLog(e,'ov-log-stream'); appendLog(e,'full-log-stream'); });
+  if (data.alerts) { allAlerts=data.alerts; renderOverviewAlerts(); renderFullAlerts(allAlerts); checkNewAlerts(); }
+  document.getElementById('sb-alert-count').textContent=data.open_alerts||0;
+  loadStats();
+});
+
+// ── Init ───────────────────────────────────────────────────────────
+if (Notification.permission==='default') Notification.requestPermission();
+loadStats(); loadAlerts(); loadEvents();
+setInterval(loadStats,8000); setInterval(loadAlerts,8000);
+</script>
+</body>
+</html>
